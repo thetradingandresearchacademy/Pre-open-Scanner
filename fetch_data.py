@@ -1,68 +1,70 @@
 import yfinance as yf
 import pandas as pd
-import requests
-from datetime import datetime
-import ta
+import datetime
+import time
 
-BOT_TOKEN = "PASTE_YOUR_TOKEN"
-CHAT_ID = "PASTE_YOUR_CHAT_ID"
+# --- CONFIGURATION ---
+# We hardcode the Top 20 NSE Stocks to ensure it ALWAYS has something to download
+SYMBOLS = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+    "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "KOTAKBANK.NS", "LICI.NS",
+    "LT.NS", "AXISBANK.NS", "HCLTECH.NS", "ASIANPAINT.NS", "MARUTI.NS",
+    "SUNPHARMA.NS", "TITAN.NS", "BAJFINANCE.NS", "ULTRACEMCO.NS", "TATASTEEL.NS"
+]
 
-def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+def harvest_data():
+    print(f"🚀 TARA HARVEST STARTED: Scanning {len(SYMBOLS)} Stocks...")
+    
+    all_data = []
+    
+    for symbol in SYMBOLS:
+        try:
+            print(f"   Downloading: {symbol}...")
+            # Fetch 1 year of data
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="1y")
+            
+            if df.empty:
+                print(f"   ⚠️ No data for {symbol}")
+                continue
+            
+            # Reset index to make Date a column
+            df = df.reset_index()
+            
+            # CLEANUP: Rename columns to match TARA Engine (UPPERCASE)
+            # yfinance gives: Date, Open, High, Low, Close, Volume
+            # We need: TIMESTAMP, OPEN, HIGH, LOW, CLOSE, TOTTRDQTY
+            df = df.rename(columns={
+                "Date": "TIMESTAMP",
+                "Open": "OPEN",
+                "High": "HIGH",
+                "Low": "LOW",
+                "Close": "CLOSE",
+                "Volume": "TOTTRDQTY"
+            })
+            
+            # Add Symbol Column
+            df['SYMBOL'] = symbol.replace(".NS", "") # Remove .NS for cleaner UI
+            
+            # Keep only relevant columns
+            cols = ['SYMBOL', 'TIMESTAMP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'TOTTRDQTY']
+            df = df[cols]
+            
+            all_data.append(df)
+            
+        except Exception as e:
+            print(f"   ❌ Error fetching {symbol}: {e}")
+            
+    if all_data:
+        # Combine all stocks into one big table
+        final_df = pd.concat(all_data)
+        
+        # Save to CSV
+        final_df.to_csv("smart_db.csv", index=False)
+        print(f"✅ SUCCESS: Saved {len(final_df)} rows to 'smart_db.csv'")
+    else:
+        print("❌ CRITICAL FAILURE: No data downloaded.")
+        exit(1) # Force the workflow to crash so we see the red X
 
-# -------- LOAD SYMBOLS --------
-with open("symbols.txt") as f:
-    symbols = [s.strip() for s in f.readlines() if s.strip()]
-
-watchlist = []
-
-for sym in symbols:
-    try:
-        df = yf.download(sym + ".NS", period="120d", interval="1d", progress=False)
-        df.dropna(inplace=True)
-
-        # Tight + Thin
-        last6 = df.tail(6)
-        tight = (last6["Close"].max() - last6["Close"].min()) / last6["Close"].min() <= 0.05
-        thin = last6["Volume"].iloc[-1] < last6["Volume"].mean()
-
-        if not (tight and thin):
-            continue
-
-        # Indicators
-        df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
-        df["ADX"] = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"]).adx()
-        df["SMA50"] = df["Close"].rolling(50).mean()
-
-        rsi = df["RSI"].iloc[-1]
-        adx = df["ADX"].iloc[-1]
-        sma = df["SMA50"].iloc[-1]
-        close = df["Close"].iloc[-1]
-
-        # Volume score
-        vol_score = min((last6["Volume"].iloc[-1] / last6["Volume"].mean()) * 25, 25)
-
-        # Scores
-        rsi_score = 100 - abs(rsi - 50)
-        sma_score = 80 if close > sma else 30
-
-        score = (vol_score * 0.35) + (adx * 0.25) + \
-                (rsi_score * 0.15) + (sma_score * 0.15)
-
-        watchlist.append((sym, round(score,2)))
-
-    except:
-        continue
-
-# -------- RANK --------
-top = sorted(watchlist, key=lambda x: x[1], reverse=True)[:5]
-
-# -------- MESSAGE --------
-msg = "🎯 TOP SETUPS TODAY\n\n"
-for i,(s,sc) in enumerate(top,1):
-    msg += f"{i}. {s} — Score: {sc}\n"
-
-msg += f"\nTime: {datetime.now()}"
-
-send_telegram(msg)
+if __name__ == "__main__":
+    harvest_data()
