@@ -2,14 +2,14 @@ name: TARA Daily Sync
 
 on:
   schedule:
-    - cron: '45 14 * * 1-5' # Runs at 7:45 PM IST Mon-Fri
-  workflow_dispatch:        # Enables the manual Run button
+    - cron: '45 14 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   harvest:
     runs-on: ubuntu-latest
     permissions:
-      contents: write       # Vital for saving the CSV
+      contents: write  # Critical for pushing changes
     
     steps:
       - name: Checkout Code
@@ -22,16 +22,18 @@ jobs:
           
       - name: Install Dependencies
         run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pandas requests yfinance ta
         
       - name: Run TARA Harvest
-        run: python fetch_data.py
-        
+        run: |
+          python fetch_data.py
+          ls -lh  # DEBUG: List files to prove CSV exists
+          
       - name: Commit & Push Smart DB
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add smart_db.csv || echo "No DB to add"
-          git commit -m "TARA Smart DB Update: $(date)" || echo "No changes to commit"
+          git add smart_db.csv
+          # The next line will crash if there are no changes, which is GOOD (we want to know)
+          git commit -m "TARA Smart DB Update: $(date)"
           git push
