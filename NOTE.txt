@@ -1,0 +1,3 @@
+This is a Gem designed- Premaket Manual Scanner- 
+Collects data & creates CSV in Github
+Upload NSE Pre-marekt open file at 9:08AM & click generate signals.
